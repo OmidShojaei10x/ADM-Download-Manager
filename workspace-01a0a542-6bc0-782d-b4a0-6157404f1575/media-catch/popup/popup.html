@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --accent:#2563eb; --line:#e2e8f0; }
+  * { box-sizing: border-box; }
+  body { width: 360px; margin: 0; font-family: system-ui, 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--ink); }
+  .hidden { display: none !important; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #0f172a; color: #fff; }
+  header img { width: 28px; height: 28px; border-radius: 7px; }
+  header .t { font-size: 14px; font-weight: 800; }
+  header .s { font-size: 10px; color: #94a3b8; }
+  .pill { margin-inline-start: auto; background: var(--accent); border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; }
+
+  section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .sec-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; color: var(--muted); margin-bottom: 8px; }
+  .sec-title .actions { margin-inline-start: auto; display: flex; gap: 4px; }
+  .mini { border: 1px solid var(--line); background: #fff; border-radius: 7px; width: 24px; height: 22px; cursor: pointer; font-size: 12px; line-height: 1; color: #334155; }
+  .mini:hover { border-color: var(--accent); color: var(--accent); }
+  .mini.ghost { width: auto; padding: 0 8px; font-size: 10px; }
+
+  .row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 0; cursor: pointer; }
+  .row input { accent-color: var(--accent); }
+
+  #page-list { max-height: 160px; overflow-y: auto; }
+  .item { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--card); }
+  .item .ic { font-size: 16px; width: 22px; text-align: center; flex: none; }
+  .item .meta { flex: 1; min-width: 0; }
+  .item .nm { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: ltr; text-align: right; }
+  .item .sub { font-size: 10px; color: var(--muted); }
+  .dl { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 800; cursor: pointer; flex: none; }
+  .dl:hover { background: #1d4ed8; }
+  .dl.done { background: #16a34a; }
+  .dl.err { background: #b91c1c; }
+  .empty { font-size: 11.5px; color: var(--muted); padding: 6px 0; }
+
+  #history-list { max-height: 130px; overflow-y: auto; }
+  .hrow { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+  .hrow:last-child { border-bottom: none; }
+  .hrow .st { width: 18px; text-align: center; flex: none; }
+  .hrow .fn { flex: 1; direction: ltr; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hrow .sz { color: var(--muted); flex: none; font-size: 10px; }
+
+  footer { padding: 10px 14px; display: flex; justify-content: flex-end; }
+  footer a { font-size: 11.5px; color: var(--accent); font-weight: 700; text-decoration: none; cursor: pointer; }
+</style>
+</head>
+<body>
+  <header>
+    <img src="../icons/icon48.png" alt="">
+    <div>
+      <div class="t">MediaCatch</div>
+      <div class="s">دانلودر هوشمند رسانه</div>
+    </div>
+    <span id="count-pill" class="pill">—</span>
+  </header>
+
+  <section>
+    <div class="sec-title">
+      رسانه‌های این صفحه
+      <span class="actions">
+        <button id="btn-rescan" class="mini" title="بازرسی دوباره صفحه">↻</button>
+        <button id="btn-panel" class="mini" title="نمایش پنل در صفحه">☰</button>
+      </span>
+    </div>
+    <div id="page-list"></div>
+    <div id="page-empty" class="empty hidden"></div>
+  </section>
+
+  <section>
+    <div class="sec-title">تنظیمات سریع</div>
+    <label class="row"><input type="checkbox" id="q-enabled"> فعال بودن تشخیص خودکار رسانه‌ها</label>
+    <label class="row"><input type="checkbox" id="q-saveas"> پرسش محل ذخیره هنگام دانلود</label>
+  </section>
+
+  <section id="history-section">
+    <div class="sec-title">
+      دانلودهای اخیر
+      <button id="btn-clear" class="mini ghost">پاک‌سازی</button>
+    </div>
+    <div id="history-list"></div>
+  </section>
+
+  <footer><a href="#" id="btn-options">تنظیمات کامل ←</a></footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

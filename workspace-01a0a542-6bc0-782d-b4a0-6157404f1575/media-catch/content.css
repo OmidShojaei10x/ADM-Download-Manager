@@ -1,0 +1,274 @@
+/* MediaCatch — استایل اجزای تزریق‌شده در صفحه */
+
+[hidden] {
+  display: none !important;
+}
+
+#mbd-fab {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font: 600 13px/1 system-ui, 'Segoe UI', Tahoma, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  user-select: none;
+  direction: rtl;
+}
+#mbd-fab:hover {
+  background: #1e293b;
+}
+#mbd-fab-icon {
+  font-size: 15px;
+}
+#mbd-fab-count {
+  background: #2563eb;
+  border-radius: 999px;
+  min-width: 20px;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+#mbd-panel {
+  position: fixed;
+  top: 60px;
+  left: 18px;
+  z-index: 2147483647;
+  width: 340px;
+  max-width: calc(100vw - 36px);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #0f172a;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  font-family: system-ui, 'Segoe UI', Tahoma, sans-serif;
+  overflow: hidden;
+  direction: rtl;
+  border: 1px solid #e2e8f0;
+}
+.mbd-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #fff;
+}
+.mbd-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mbd-icon-btn {
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  line-height: 1;
+}
+.mbd-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.mbd-chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+.mbd-chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #334155;
+  font-weight: 600;
+  font-family: inherit;
+}
+.mbd-chip:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+.mbd-chip.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.mbd-panel-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 60px;
+}
+.mbd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.mbd-row:hover {
+  background: #f8fafc;
+}
+.mbd-row-icon {
+  font-size: 17px;
+  width: 24px;
+  text-align: center;
+  flex: none;
+}
+.mbd-row-meta {
+  flex: 1;
+  min-width: 0;
+}
+.mbd-row-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: ltr;
+  text-align: right;
+}
+.mbd-row-sub {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 1px;
+}
+.mbd-dl {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: inherit;
+  flex: none;
+}
+.mbd-dl:hover {
+  background: #1d4ed8;
+}
+.mbd-dl.mbd-done {
+  background: #16a34a;
+}
+.mbd-panel-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+}
+.mbd-panel-foot {
+  padding: 8px 10px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+.mbd-panel-info {
+  font-size: 11px;
+  color: #64748b;
+}
+
+#mbd-float {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #0f172a;
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font: 600 12px/1 system-ui, 'Segoe UI', Tahoma, sans-serif;
+  cursor: pointer;
+  direction: rtl;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  user-select: none;
+  max-width: 320px;
+}
+#mbd-float-icon {
+  font-size: 14px;
+}
+#mbd-float-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#mbd-float-dl {
+  background: #2563eb;
+  border: none;
+  color: #fff;
+  border-radius: 7px;
+  min-width: 28px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex: none;
+}
+#mbd-float-dl:hover {
+  background: #1d4ed8;
+}
+#mbd-float-dl.mbd-done,
+.mbd-dl.mbd-done {
+  background: #16a34a;
+}
+#mbd-float-dl.mbd-err,
+.mbd-dl.mbd-err {
+  background: #b91c1c;
+}
+
+#mbd-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 50%;
+  transform: translateX(50%) translateY(10px);
+  background: #0f172a;
+  color: #fff;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font: 600 13px system-ui, 'Segoe UI', Tahoma, sans-serif;
+  z-index: 2147483647;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  direction: rtl;
+  max-width: 80vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#mbd-toast.mbd-show {
+  opacity: 1;
+  transform: translateX(50%) translateY(0);
+}
+#mbd-toast.mbd-toast-err {
+  background: #b91c1c;
+}

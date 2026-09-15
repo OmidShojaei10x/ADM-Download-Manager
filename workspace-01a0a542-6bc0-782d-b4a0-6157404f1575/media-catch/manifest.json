@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "MediaCatch — دانلودر رسانه",
+  "short_name": "MediaCatch",
+  "version": "1.0.0",
+  "description": "تشخیص خودکار تصاویر، ویدیوها و فایل‌های صوتی در صفحه و دانلود یک‌کلیکی — در سبک ADM Download Manager",
+  "permissions": ["downloads", "storage", "contextMenus", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*", "file://*/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "commands": {
+    "mbd-download-current": {
+      "suggested_key": { "default": "Alt+D" },
+      "description": "دانلود رسانه‌ای که نشانگر ماوس روی آن است"
+    },
+    "mbd-toggle-panel": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "نمایش / مخفی کردن پنل رسانه‌های صفحه"
+    }
+  }
+}
