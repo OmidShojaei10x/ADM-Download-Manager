@@ -62,24 +62,36 @@ async function refreshPage() {
   for (const it of items) {
     const row = document.createElement('div');
     row.className = 'item';
+    const isYt = it.special === 'youtube';
     const ic = document.createElement('span');
     ic.className = 'ic';
-    ic.textContent = TYPE_ICON[it.type] || '📎';
+    ic.textContent = isYt ? '📺' : TYPE_ICON[it.type] || '📎';
     const meta = document.createElement('div');
     meta.className = 'meta';
     const nm = document.createElement('div');
     nm.className = 'nm';
-    nm.textContent = it.name;
+    nm.textContent = isYt ? 'ویدیوی یوتیوب' : it.name;
     nm.title = it.url;
     const sub = document.createElement('div');
     sub.className = 'sub';
-    sub.textContent = (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
+    sub.textContent = isYt
+      ? 'ID: ' + (it.videoId || '')
+      : (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
     meta.append(nm, sub);
+    let sel = null;
+    if (isYt) {
+      sel = document.createElement('select');
+      sel.className = 'pop-sel';
+      sel.innerHTML =
+        '<option value="v720">ویدیو 720p</option>' +
+        '<option value="v360">ویدیو 360p</option>' +
+        '<option value="audio">🎵 صدا فقط</option>';
+    }
     const btn = document.createElement('button');
     btn.className = 'dl';
     btn.textContent = '⬇ دانلود';
     btn.addEventListener('click', async () => {
-      const ok = await popupDownload(it);
+      const ok = await popupDownload(it, isYt && sel ? sel.value : null);
       if (ok) {
         btn.classList.add('done');
         btn.textContent = '✓ شروع شد';
@@ -96,40 +108,56 @@ async function refreshPage() {
         }, 2500);
       }
     });
-    row.append(ic, meta, btn);
+    row.append(ic, meta, sel, btn);
     list.appendChild(row);
   }
 }
 
-// دانلود از popup: اول از طریق content script (زنجیره کامل)، بعد مستقیم از background
-async function popupDownload(it) {
-  // ۱) content script خودش fallback داخلی هم دارد
-  try {
-    const r = await chrome.tabs.sendMessage(tab.id, { type: 'mbd:downloadItem', url: it.url });
-    if (r && r.ok) return true;
-  } catch (e) {}
-  // ۲) مستقیم از background (پروتکل ack + result)
-  return await new Promise((resolve) => {
+// پیام به background با پروتکل ack + result (popup)
+function bgAwait(type, payload, timeoutMs) {
+  return new Promise((resolve) => {
     let done = false;
-    const PToken = 'popup-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
-    const finish = (ok) => {
+    const PToken = 'p' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+    const finish = (res) => {
       if (done) return;
       done = true;
       clearTimeout(t);
       chrome.runtime.onMessage.removeListener(h);
-      resolve(ok);
+      resolve(res || { ok: false, error: 'no-response' });
     };
-    const t = setTimeout(() => finish(false), 30000);
+    const t = setTimeout(() => finish({ ok: false, error: 'timeout' }), timeoutMs || 30000);
     const h = (msg) => {
-      if (msg && msg.type === 'mbd:download-result' && msg.token === PToken) finish(!!msg.ok);
+      if (msg && msg.type === 'mbd:download-result' && msg.token === PToken) finish(msg);
     };
     chrome.runtime.onMessage.addListener(h);
     try {
-      chrome.runtime.sendMessage({ type: 'mbd:download', token: PToken, url: it.url, filename: it.name, source: location.href });
+      chrome.runtime.sendMessage(Object.assign({ type, token: PToken }, payload || {}), (res) => {
+        if (res && res.ack) return;
+        finish(res);
+      });
     } catch (e) {
-      finish(false);
+      finish({ ok: false, error: (e && e.message) || String(e) });
     }
   });
+}
+
+// دانلود از popup: اول از طریق content script (زنجیره کامل)، بعد مستقیم از background
+async function popupDownload(it, quality) {
+  if (it.special === 'youtube') {
+    const q = quality || 'v720';
+    try {
+      const r = await chrome.tabs.sendMessage(tab.id, { type: 'mbd:youtubeItem', videoId: it.videoId, quality: q });
+      if (r && r.ok) return true;
+    } catch (e) {}
+    const res = await bgAwait('mbd:youtube', { videoId: it.videoId, quality: q });
+    return !!(res && res.ok);
+  }
+  try {
+    const r = await chrome.tabs.sendMessage(tab.id, { type: 'mbd:downloadItem', url: it.url });
+    if (r && r.ok) return true;
+  } catch (e) {}
+  const res = await bgAwait('mbd:download', { url: it.url, filename: it.name, source: location.href });
+  return !!(res && res.ok);
 }
 
 async function refreshHistory() {

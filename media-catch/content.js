@@ -202,7 +202,18 @@
       const w = el.videoWidth || el.clientWidth || 0;
       const h = el.videoHeight || el.clientHeight || 0;
       const main = el.currentSrc || (el.src && el.src !== 'about:blank' ? el.src : null);
-      if (main) register(main, typeOf(main) === 'stream' ? 'stream' : 'video', w, h, el, 10);
+      if (main) {
+        if (main.startsWith('blob:')) {
+          const yid = getYouTubeVideoId();
+          if (yid) {
+            registerYtItem(yid, el, w, h); // blob یوتیوب (MSE) → استریکتر
+            return;
+          }
+          register(main, 'video', w, h, el, 10); // blob سایت‌های دیگر (ممکن است قابل fetch باشد)
+        } else {
+          register(main, typeOf(main) === 'stream' ? 'stream' : 'video', w, h, el, 10);
+        }
+      }
       el.querySelectorAll('source').forEach((s) => {
         const u = normUrl(s.getAttribute('src') || s.src, location.href);
         if (u) register(u, typeOf(u) === 'stream' ? 'stream' : 'video', w, h, el, 5);
@@ -310,11 +321,16 @@
     currentFloatItem = item;
     const f = ensureFloat();
     f.hidden = false;
-    f.querySelector('.mbd-float-icon').textContent = TYPE_ICON[item.type] || '⬇';
-    f.querySelector('.mbd-float-text').textContent =
-      (TYPE_LABEL[item.type] || 'فایل') +
-      (item.w && item.h ? ' · ' + item.w + '×' + item.h : '') +
-      ' · دانلود';
+    if (item.special === 'youtube') {
+      f.querySelector('.mbd-float-icon').textContent = '📺';
+      f.querySelector('.mbd-float-text').textContent = 'یوتیوب · دانلود 720p';
+    } else {
+      f.querySelector('.mbd-float-icon').textContent = TYPE_ICON[item.type] || '⬇';
+      f.querySelector('.mbd-float-text').textContent =
+        (TYPE_LABEL[item.type] || 'فایل') +
+        (item.w && item.h ? ' · ' + item.w + '×' + item.h : '') +
+        ' · دانلود';
+    }
     positionFloat(el);
   }
 
@@ -375,17 +391,136 @@
     'resize',
     () => {
       if (hoveredEl) positionFloat(hoveredEl);
+      clampEl(fabEl);
+      if (panelEl && !panelEl.hidden) clampEl(panelEl);
     },
     { passive: true }
   );
 
   /* ---------------- دکمه شناور پنل (FAB) ---------------- */
 
+  /* ---------- drag & جابجایی با موس ---------- */
+
+  let uiPos = { fab: null, panel: null };
+  try {
+    chrome.storage.local.get(['mbdUi'], (r) => {
+      uiPos = Object.assign({ fab: null, panel: null }, (r && r.mbdUi) || {});
+      if (fabEl) applyUiPos('fab');
+      if (panelEl && !panelEl.hidden) applyUiPos('panel');
+    });
+  } catch (e) {}
+
+  function saveUiPos(key) {
+    try {
+      const el = key === 'fab' ? fabEl : panelEl;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const ui = Object.assign({}, uiPos);
+      ui[key] = { x: Math.round(r.left), y: Math.round(r.top) };
+      chrome.storage.local.set({ mbdUi: ui });
+    } catch (e) {}
+  }
+
+  function applyUiPos(key) {
+    const el = key === 'fab' ? fabEl : panelEl;
+    const p = uiPos[key];
+    if (!el || !p) return;
+    const w = el.offsetWidth || 0;
+    const h = el.offsetHeight || 0;
+    const x = Math.max(4, Math.min(p.x, innerWidth - Math.max(w, 40) - 4));
+    const y = Math.max(4, Math.min(p.y, innerHeight - Math.max(h, 40) - 4));
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+  }
+
+  function clampEl(el) {
+    if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const r = el.getBoundingClientRect();
+    if (r.right > innerWidth - 4 || r.bottom > innerHeight - 4 || r.left < 4 || r.top < 4) {
+      const x = Math.max(4, Math.min(r.left, innerWidth - w - 4));
+      const y = Math.max(4, Math.min(r.top, innerHeight - h - 4));
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+    }
+  }
+
+  function resetUiPos(key) {
+    const el = key === 'fab' ? fabEl : panelEl;
+    if (!el) return;
+    el.style.left = '';
+    el.style.top = '';
+    el.style.right = '';
+    el.style.bottom = '';
+    const ui = Object.assign({}, uiPos);
+    ui[key] = null;
+    uiPos = ui;
+    try {
+      chrome.storage.local.set({ mbdUi: ui });
+    } catch (e) {}
+  }
+
+  const justDragged = (el) => !!(el && el._mbdDragEnd && Date.now() - el._mbdDragEnd < 400);
+
+  function makeDraggable(handle, target, key) {
+    let dragging = false;
+    let moved = false;
+    let sx = 0, sy = 0, ox = 0, oy = 0;
+    handle.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      // از روی دکمه/فیلد شروع نشه
+      if (e.target.closest && e.target.closest('button,select,input,textarea,a')) return;
+      dragging = true;
+      moved = false;
+      const r = target.getBoundingClientRect();
+      ox = r.left;
+      oy = r.top;
+      sx = e.clientX;
+      sy = e.clientY;
+      e.preventDefault();
+    });
+    document.addEventListener(
+      'mousemove',
+      (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - sx;
+        const dy = e.clientY - sy;
+        if (!moved && Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+        if (!moved) return;
+        const w = target.offsetWidth, h = target.offsetHeight;
+        const x = Math.max(4, Math.min(ox + dx, innerWidth - w - 4));
+        const y = Math.max(4, Math.min(oy + dy, innerHeight - h - 4));
+        target.style.left = x + 'px';
+        target.style.top = y + 'px';
+        target.style.right = 'auto';
+        target.style.bottom = 'auto';
+      },
+      { passive: true }
+    );
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved) {
+        target._mbdDragEnd = Date.now();
+        saveUiPos(key);
+      }
+    });
+    // دابل‌کلیک → برگشت به جای پیش‌فرض
+    handle.addEventListener('dblclick', (e) => {
+      if (e.target.closest && e.target.closest('button,select')) return;
+      resetUiPos(key);
+    });
+  }
+
   function ensureFab() {
     if (fabEl) return fabEl;
     fabEl = document.createElement('div');
     fabEl.id = 'mbd-fab';
-    fabEl.title = 'رسانه‌های صفحه (MediaCatch) — Alt+Shift+D';
+    fabEl.title = 'رسانه‌های صفحه (MediaCatch) — Alt+Shift+D | با موس بکش تا جابجا کنی';
     const ic = document.createElement('span');
     ic.className = 'mbd-fab-icon';
     ic.textContent = '📥';
@@ -394,9 +529,12 @@
     fabEl.append(ic, cnt);
     fabEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (justDragged(fabEl)) return;
       togglePanel();
     });
     (document.body || document.documentElement).appendChild(fabEl);
+    applyUiPos('fab');
+    makeDraggable(fabEl, fabEl, 'fab');
     return fabEl;
   }
 
@@ -483,6 +621,9 @@
     panelEl._title = title;
     panelEl._list = list;
     panelEl._info = info;
+    head.title = 'با کشیدن، پنل را جابجا کن';
+    applyUiPos('panel');
+    makeDraggable(head, panelEl, 'panel');
     return panelEl;
   }
 
@@ -514,28 +655,46 @@
     for (const it of show) {
       const row = document.createElement('div');
       row.className = 'mbd-row';
+      const isYt = it.special === 'youtube';
       const ic = document.createElement('span');
       ic.className = 'mbd-row-icon';
-      ic.textContent = TYPE_ICON[it.type] || '📎';
+      ic.textContent = isYt ? '📺' : TYPE_ICON[it.type] || '📎';
       const meta = document.createElement('div');
       meta.className = 'mbd-row-meta';
       const name = document.createElement('div');
       name.className = 'mbd-row-name';
-      name.textContent = it.name;
+      name.textContent = isYt ? 'ویدیوی یوتیوب' : it.name;
       name.title = it.url;
       const sub = document.createElement('div');
       sub.className = 'mbd-row-sub';
-      sub.textContent = (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
+      sub.textContent = isYt
+        ? 'ID: ' + it.videoId
+        : (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
       meta.append(name, sub);
       const btn = document.createElement('button');
       btn.className = 'mbd-dl';
       btn.textContent = '⬇';
-      btn.title = it.url;
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        download(it, btn);
-      });
-      row.append(ic, meta, btn);
+      btn.title = isYt ? 'دانلود از یوتیوب' : it.url;
+      if (isYt) {
+        const sel = document.createElement('select');
+        sel.className = 'mbd-sel';
+        sel.innerHTML =
+          '<option value="v720">ویدیو 720p</option>' +
+          '<option value="v360">ویدیو 360p</option>' +
+          '<option value="audio">🎵 صدا فقط</option>';
+        sel.addEventListener('click', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          youtubeDownload(it, btn, sel.value);
+        });
+        row.append(ic, meta, sel, btn);
+      } else {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          download(it, btn);
+        });
+        row.append(ic, meta, btn);
+      }
       p._list.appendChild(row);
     }
     if (list.length > 100) {
@@ -616,7 +775,7 @@
   }
 
   // پیام به background با پروتکل ack + result
-  function requestBackgroundDownload(item) {
+  function requestMessage(type, payload) {
     return new Promise((resolve) => {
       let settled = false;
       const token = 'c' + dlSeq++;
@@ -630,25 +789,38 @@
       const timer = setTimeout(() => finish({ ok: false, error: 'ack-timeout' }), 3000);
       pendingDls.set(token, finish);
       try {
-        chrome.runtime.sendMessage(
-          { type: 'mbd:download', token, url: item.url, filename: item.name, source: location.href },
-          (res) => {
-            if (res && res.ack) return; // نتیجه اصلی با mbd:download-result می‌رسد
-            finish(res);
-          }
-        );
+        chrome.runtime.sendMessage(Object.assign({ type, token }, payload || {}), (res) => {
+          if (res && res.ack) return; // نتیجه اصلی با mbd:download-result می‌رسد
+          finish(res);
+        });
       } catch (e) {
         finish({ ok: false, error: (e && e.message) || String(e) });
       }
     });
   }
 
+  // دانلود ویدیوی یوتیوب با استریکتر (API innerTube) در background
+  async function youtubeDownload(item, btn, quality) {
+    quality = quality || 'v720';
+    markBtn(btn, 'busy');
+    const res = await requestMessage('mbd:youtube', { videoId: item.videoId, quality, source: location.href });
+    if (res && res.ok) {
+      toast('⬇ دانلود شروع شد: ' + (res.name || item.name));
+      markBtn(btn, 'done');
+      return true;
+    }
+    toast('دانلود یوتیوب ناموفق بود: ' + ((res && res.error) || 'خطای نامشخص'), true);
+    markBtn(btn, 'err');
+    return false;
+  }
+
   async function download(item, btn) {
     if (!item) return false;
+    if (item.special === 'youtube') return youtubeDownload(item, btn);
     if (isDataOrBlob(item.url)) return inPageDownload(item.url, item.name, btn);
 
     markBtn(btn, 'busy');
-    const res = await requestBackgroundDownload(item);
+    const res = await requestMessage('mbd:download', { url: item.url, filename: item.name, source: location.href });
     if (res && res.ok) {
       toast('⬇ دانلود شروع شد: ' + item.name + (res.via === 'fetch' ? ' (روش جایگزین)' : ''));
       markBtn(btn, 'done');
@@ -774,7 +946,15 @@
         sendResponse({
           ok: true,
           count: items.size,
-          items: [...items.values()].slice(0, 40).map((it) => ({ url: it.url, type: it.type, name: it.name, w: it.w, h: it.h })),
+          items: [...items.values()].slice(0, 40).map((it) => ({
+            url: it.url,
+            type: it.type,
+            name: it.name,
+            w: it.w,
+            h: it.h,
+            special: it.special || null,
+            videoId: it.videoId || null,
+          })),
         });
       } else if (msg.type === 'mbd:rescan') {
         collect({ deep: true });
@@ -783,6 +963,16 @@
       } else if (msg.type === 'mbd:togglePanel') {
         togglePanel();
         sendResponse({ ok: true });
+      } else if (msg.type === 'mbd:youtubeItem') {
+        const it =
+          items.get('yt:' + msg.videoId) ||
+          [...items.values()].find((x) => x.special === 'youtube' && x.videoId === msg.videoId);
+        if (it) {
+          youtubeDownload(it, null, msg.quality);
+          sendResponse({ ok: true });
+        } else {
+          sendResponse({ ok: false, error: 'youtube item not found' });
+        }
       } else if (msg.type === 'mbd:downloadItem') {
         const it = items.get(msg.url);
         if (it) {

@@ -17,11 +17,15 @@
   border-radius: 999px;
   padding: 10px 14px;
   font: 600 13px/1 system-ui, 'Segoe UI', Tahoma, sans-serif;
-  cursor: pointer;
+  cursor: grab;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.15);
   user-select: none;
   direction: rtl;
+  touch-action: none;
+}
+#mbd-fab:active {
+  cursor: grabbing;
 }
 #mbd-fab:hover {
   background: #1e293b;
@@ -68,6 +72,11 @@
   padding: 10px 12px;
   background: #0f172a;
   color: #fff;
+  cursor: grab;
+  user-select: none;
+}
+.mbd-panel-head:active {
+  cursor: grabbing;
 }
 .mbd-panel-title {
   font-size: 13px;
@@ -243,6 +252,18 @@
 #mbd-float-dl.mbd-err,
 .mbd-dl.mbd-err {
   background: #b91c1c;
+}
+
+.mbd-sel {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font: 600 11px system-ui, Tahoma, sans-serif;
+  flex: none;
+  max-width: 100px;
+  cursor: pointer;
 }
 
 #mbd-toast {

@@ -152,6 +152,95 @@ function blobToDataUrl(blob) {
   });
 }
 
+/* ---------------- یوتیوب (استریکتر) ----------------
+   از API innerTube فرمت‌های قابل دانلود را می‌گیرد.
+   best-effort: یوتیوب گاهی فرمت‌ها را با token خاص محافظت می‌کند. */
+
+const YT_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+async function ytGetPlayer(videoId) {
+  const url = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+  const body = {
+    context: {
+      client: {
+        clientName: 'WEB',
+        clientVersion: '2.20240115.00.00',
+        hl: 'fa',
+        gl: 'IR',
+        userAgent: YT_UA,
+        clientFormFactor: 'UNKNOWN_FORM_FACTOR',
+      },
+    },
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': YT_UA,
+      Origin: 'https://www.youtube.com',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  return await resp.json();
+}
+
+function ytPickFormat(data, quality) {
+  const sd = data.streamingData;
+  if (!sd) return null;
+  const prog = sd.formats || []; // فرمت‌های تک‌فایلی (mp4 mux)
+  const dash = sd.adaptiveFormats || []; // DASH (سپارته)
+  const byItag = (list, itag) => list.find((f) => Number(f.itag) === itag && f.url);
+  if (quality === 'audio') {
+    const a = byItag(dash, 140) || byItag(prog, 140) || byItag(dash, 251);
+    if (a) return { url: a.url, ext: /webm/.test(a.mimeType || '') ? 'webm' : 'm4a' };
+    return null;
+  }
+  const want = quality === 'v360' ? [18, 22] : [22, 18, 37];
+  for (const it of want) {
+    const f = byItag(prog, it);
+    if (f) return { url: f.url, ext: 'mp4' };
+  }
+  return null;
+}
+
+async function startYouTubeDownload(videoId, quality, source, tabId, frameId) {
+  const s = await chrome.storage.local.get('mbdSettings');
+  const cfg = { ...DEFAULTS, ...(s.mbdSettings || {}) };
+  try {
+    const data = await ytGetPlayer(videoId);
+    const ps = data.playabilityStatus;
+    if (ps && ps.status && ps.status !== 'OK' && ps.status !== 'LOGIN_REQUIRED') {
+      return { ok: false, error: ps.reason || ps.status };
+    }
+    const fmt = ytPickFormat(data, quality);
+    if (!fmt) {
+      return {
+        ok: false,
+        error:
+          'فرمت قابل دسترسی پیدا نشد — یوتیوب گاهی لینک مستقیم را پنهان می‌کند (POT token). در این صورت yt-dlp محلی مطمئن‌ترین راه است',
+      };
+    }
+    let title = (data.videoDetails && data.videoDetails.title) || videoId;
+    title = title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 100);
+    const name = title + '.' + fmt.ext;
+    const id = await chrome.downloads.download({
+      url: fmt.url,
+      filename: 'media-catch/' + name,
+      saveAs: !!cfg.saveAs,
+      conflictAction: 'uniquify',
+    });
+    record(id, fmt.url, name, source || 'youtube.com', 'youtube', tabId, frameId);
+    return { ok: true, id, name };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
 /* ---------------- تاریخچه ---------------- */
 
 async function record(id, url, filename, source, via, tabId, frameId) {
@@ -252,6 +341,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let res;
         try {
           res = await startDownload(msg.url, msg.filename, null, source, tabId, frameId);
+        } catch (e) {
+          res = { ok: false, error: (e && e.message) || String(e) };
+        }
+        dispatchResult({ type: 'mbd:download-result', token, ...res }, tabId, frameId);
+      } else if (msg.type === 'mbd:youtube') {
+        const tabId = sender.tab ? sender.tab.id : null;
+        const frameId = sender.frameId || 0;
+        const source = (sender.tab && sender.tab.url) || msg.source || null;
+        const token = msg.token || 't' + ++tokenSeq;
+        sendResponse({ ack: true, token });
+        let res;
+        try {
+          res = await startYouTubeDownload(msg.videoId, msg.quality || 'v720', source, tabId, frameId);
         } catch (e) {
           res = { ok: false, error: (e && e.message) || String(e) };
         }
