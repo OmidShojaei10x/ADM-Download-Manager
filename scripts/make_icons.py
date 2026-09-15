@@ -3,7 +3,8 @@
 from PIL import Image, ImageDraw
 import os
 
-OUT = "/home/user/media-catch/icons"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "media-catch", "icons")
 os.makedirs(OUT, exist_ok=True)
 
 
