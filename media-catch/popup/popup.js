@@ -23,6 +23,23 @@ function fmtSize(b) {
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
   return (b / 1048576).toFixed(1) + ' MB';
 }
+function fmtDur(sec) {
+  const s = Math.max(0, parseInt(sec, 10) || 0);
+  if (!s) return '';
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ':' + String(r).padStart(2, '0');
+}
+
+function itemSub(it) {
+  if (it.special === 'youtube') return 'ID: ' + (it.videoId || '');
+  const parts = [TYPE_LABEL[it.type] || it.type];
+  if (it.durationSec) parts.push(fmtDur(it.durationSec));
+  if (it.sizeBytes) parts.push(fmtSize(it.sizeBytes));
+  if (it.w && it.h) parts.push(it.w + '×' + it.h);
+  return parts.join(' · ');
+}
+
 function fmtTime(ts) {
   try {
     return new Date(ts).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
@@ -79,20 +96,19 @@ async function refreshPage() {
     const row = document.createElement('div');
     row.className = 'item';
     const isYt = it.special === 'youtube';
+    const isSs = it.special === 'songsara';
     const ic = document.createElement('span');
     ic.className = 'ic';
-    ic.textContent = isYt ? '📺' : TYPE_ICON[it.type] || '📎';
+    ic.textContent = isYt ? '📺' : isSs ? '🎵' : TYPE_ICON[it.type] || '📎';
     const meta = document.createElement('div');
     meta.className = 'meta';
     const nm = document.createElement('div');
     nm.className = 'nm';
-    nm.textContent = isYt ? 'ویدیوی یوتیوب' : it.name;
-    nm.title = it.url;
+    nm.textContent = isYt ? 'ویدیوی یوتیوب' : isSs ? it.name.replace(/\.[a-z0-9]+$/i, '') : it.name;
+    nm.title = isSs ? it.name : it.url;
     const sub = document.createElement('div');
     sub.className = 'sub';
-    sub.textContent = isYt
-      ? 'ID: ' + (it.videoId || '')
-      : (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
+    sub.textContent = itemSub(it);
     meta.append(nm, sub);
     let sel = null;
     if (isYt) {

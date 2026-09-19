@@ -254,6 +254,31 @@
   background: #b91c1c;
 }
 
+.mbd-ss-dl {
+  flex: none;
+  margin-inline-start: 6px;
+  border: none;
+  border-radius: 8px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  background: #2563eb;
+  color: #fff;
+  font: 700 13px/1 system-ui, Tahoma, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  z-index: 5;
+}
+.mbd-ss-dl:hover {
+  background: #1d4ed8;
+}
+.mbd-ss-dl.mbd-done {
+  background: #16a34a;
+}
+.mbd-ss-dl.mbd-err {
+  background: #b91c1c;
+}
+
 .mbd-sel {
   border: 1px solid #cbd5e1;
   background: #fff;

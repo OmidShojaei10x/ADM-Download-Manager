@@ -76,6 +76,47 @@
     return settings.enabled && isPageActive();
   }
 
+  function isSongsaraSite() {
+    return /(^|\.)songsara\.net$/i.test(location.hostname);
+  }
+
+  function fmtBytes(b) {
+    const n = Number(b) || 0;
+    if (!n) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function fmtDuration(sec) {
+    const s = Math.max(0, parseInt(sec, 10) || 0);
+    if (!s) return '';
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return m + ':' + String(r).padStart(2, '0');
+  }
+
+  function itemSubline(it) {
+    if (it.special === 'youtube') return 'ID: ' + (it.videoId || '');
+    const parts = [TYPE_LABEL[it.type] || it.type];
+    if (it.durationSec) parts.push(fmtDuration(it.durationSec));
+    if (it.sizeBytes) parts.push(fmtBytes(it.sizeBytes));
+    else if (it.sizePending) parts.push('در حال اندازه‌گیری…');
+    if (it.w && it.h) parts.push(it.w + '×' + it.h);
+    return parts.join(' · ');
+  }
+
+  async function probeRemoteSize(url) {
+    if (!/^https?:/i.test(url)) return 0;
+    try {
+      const r = await fetch(url, { method: 'HEAD', credentials: 'include', redirect: 'follow' });
+      const cl = r.headers.get('content-length');
+      return cl ? parseInt(cl, 10) || 0 : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   function makeName(url, type) {
     const t = type || typeOf(url) || 'image';
     if (!/^https?:/.test(url)) return 'media_' + t + '_' + Date.now().toString(36) + TYPE_EXT[t];
@@ -108,6 +149,7 @@
     // blob فقط برای ویدیو/صدا (پلی‌رهای MSE) معنا داره
     if (isDataOrBlob(url) && !(el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO'))) return;
     if (!isPageActive()) return;
+    if (isSongsaraSite() && (/fre\.php/i.test(url) || /admin-ajax\.php/i.test(url))) return;
 
     const t =
       type ||
@@ -245,6 +287,273 @@
     }
 
     if (deep) deepScanBg();
+    if (isSongsaraSite()) {
+      collectSongsaraTracks();
+      songsaraInjectRowButtons();
+    }
+  }
+
+  /* ---------------- سانگ‌سرا (songsara.net) ---------------- */
+
+  function songsaraItemKey(postId, trackKey) {
+    return 'ss:' + postId + ':' + trackKey;
+  }
+
+  function songsaraSafeFileName(artist, title, ext) {
+    const base = [artist, title].filter(Boolean).join(' - ') || title || 'track';
+    const clean = base.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 100);
+    const e = ext && ext.startsWith('.') ? ext : '.mp3';
+    return (clean || 'track') + e;
+  }
+
+  function songsaraPickDownload(items) {
+    if (!items || !items.length) return null;
+    const list = items.filter((x) => x && x.url);
+    if (!list.length) return null;
+    const score = (it) => {
+      const q = String(it.quality || it.label || '').toLowerCase();
+      if (q.includes('flac')) return 90;
+      if (q.includes('320')) return 80;
+      if (q.includes('mp3')) return 70;
+      if (q.includes('128')) return 50;
+      return 40;
+    };
+    return list.slice().sort((a, b) => score(b) - score(a))[0];
+  }
+
+  function songsaraResolveViaJquery(trackIndex) {
+    return new Promise((resolve, reject) => {
+      const $ = window.jQuery;
+      const rt = window.ssPlayerRuntime || window.ssPlayerRuntimeInternal;
+      if (!$ || !rt || typeof rt.resolveTrackActionDownloads !== 'function') {
+        reject(new Error('runtime-missing'));
+        return;
+      }
+      const $player = $('#aramplayer');
+      if (!$player.length) {
+        reject(new Error('player-missing'));
+        return;
+      }
+      const idx = parseInt(trackIndex, 10);
+      if (isNaN(idx) || idx < 0) {
+        reject(new Error('bad-index'));
+        return;
+      }
+      const d = rt.resolveTrackActionDownloads($player, idx);
+      if (!d || typeof d.done !== 'function') {
+        reject(new Error('deferred-missing'));
+        return;
+      }
+      d.done((data) => resolve(data)).fail((err) => reject(err || new Error('resolve-failed')));
+    });
+  }
+
+  async function songsaraResolveViaFetch(postId, trackKey) {
+    const cfg = window.AramPlayer;
+    if (!cfg || !cfg.ajaxurl) throw new Error('تنظیمات پلیر پیدا نشد');
+    const body = new URLSearchParams({
+      action: 'aram_player_resolve_track_action_downloads',
+      ss_nonce: cfg.nonce || '',
+      'track[post_id]': String(postId),
+      'track[track_key]': String(trackKey),
+    });
+    const r = await fetch(cfg.ajaxurl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body,
+    });
+    const text = await r.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      throw new Error('پاسخ سرور نامعتبر است');
+    }
+    if (!json || !json.success) {
+      const code = json && json.data && json.data.error ? String(json.data.error) : 'resolve-failed';
+      throw new Error(code);
+    }
+    const raw = (json.data && json.data.items) || [];
+    const items = raw
+      .map((it) => ({
+        quality: it.quality || '',
+        label: String(it.label || '').trim(),
+        url: String(it.url || '').trim(),
+      }))
+      .filter((it) => it.url && it.label);
+    return { title: json.data && json.data.title, items };
+  }
+
+  async function songsaraResolveDownloads(item) {
+    try {
+      const viaSite = await songsaraResolveViaJquery(item.trackIndex);
+      if (viaSite && viaSite.items && viaSite.items.length) return viaSite;
+    } catch (e) {}
+    return songsaraResolveViaFetch(item.postId, item.trackKey);
+  }
+
+  function songsaraRegisterTrack(meta, el) {
+    if (!meta.postId || !meta.trackKey) return;
+    const key = songsaraItemKey(meta.postId, meta.trackKey);
+    const title = meta.title || 'Track';
+    const artist = meta.artist || '';
+    const name = songsaraSafeFileName(artist, title, '.mp3');
+    const existing = items.get(key);
+    if (existing) {
+      if (el) {
+        existing.el = el;
+        markEl(el);
+      }
+      if (meta.duration) existing.durationSec = meta.duration;
+      return;
+    }
+    const item = {
+      id: key,
+      url: key,
+      type: 'audio',
+      name,
+      special: 'songsara',
+      postId: meta.postId,
+      trackKey: meta.trackKey,
+      trackIndex: meta.trackIndex,
+      durationSec: meta.duration || 0,
+      sizeBytes: 0,
+      sizePending: false,
+      el: el || null,
+    };
+    items.set(key, item);
+    if (el) {
+      markEl(el);
+      scoreEl(el, key, 15, 0, 0);
+    }
+    scheduleStats();
+    scheduleSongsaraSizeProbe(item);
+  }
+
+  function scheduleSongsaraSizeProbe(item) {
+    if (!item || item.sizeBytes || item.sizePending) return;
+    item.sizePending = true;
+    (async () => {
+      try {
+        const data = await songsaraResolveDownloads(item);
+        const pick = songsaraPickDownload(data.items);
+        if (!pick) return;
+        item.resolvedUrl = pick.url;
+        const ext = /\.flac/i.test(pick.url) || /flac/i.test(pick.label) ? '.flac' : '.mp3';
+        item.name = songsaraSafeFileName('', data.title || item.name.replace(/\.[a-z0-9]+$/i, ''), ext);
+        item.sizeBytes = await probeRemoteSize(pick.url);
+      } catch (e) {
+        /* حجم بعد از resolve واقعی هنگام دانلود */
+      } finally {
+        item.sizePending = false;
+        if (panelOpen) renderPanel();
+      }
+    })();
+  }
+
+  function collectSongsaraTracks() {
+    for (const [k, it] of items) {
+      if (it.url && /fre\.php/i.test(it.url) && it.special !== 'songsara') items.delete(k);
+    }
+    document.querySelectorAll('ul.audioplayer-audios li[data-track-key]').forEach((li, index) => {
+      const trackKey = li.getAttribute('data-track-key') || li.dataset.trackKey;
+      const postId = li.getAttribute('data-post-id') || li.dataset.postId;
+      const title = li.getAttribute('data-title') || li.dataset.title || '';
+      const artist = li.getAttribute('data-artist') || li.dataset.artist || '';
+      const duration = parseInt(li.getAttribute('data-duration') || li.dataset.duration || '0', 10) || 0;
+      const trackIndex = parseInt(li.getAttribute('data-track-index') || li.dataset.trackIndex || String(index), 10);
+      songsaraRegisterTrack({ postId, trackKey, title, artist, duration, trackIndex }, li);
+      const src =
+        li.getAttribute('data-src') ||
+        li.querySelector('.audioplayer-source')?.getAttribute('data-src') ||
+        '';
+      if (src && /^https?:/i.test(src) && !/fre\.php/i.test(src)) {
+        const key = songsaraItemKey(postId, trackKey);
+        const it = items.get(key);
+        if (it) {
+          it.resolvedUrl = src;
+          it.url = src;
+          scheduleSongsaraSizeProbe(it);
+        }
+      }
+    });
+  }
+
+  function songsaraInjectRowButtons() {
+    if (!isSongsaraSite() || !isExtensionActive()) return;
+    const seen = new Set();
+    document.querySelectorAll('[data-track-key][data-post-id]').forEach((row) => {
+      const ul = row.closest('ul.audioplayer-audios');
+      if (ul) {
+        try {
+          if (getComputedStyle(ul).display === 'none') return;
+        } catch (e) {}
+      }
+      const trackKey = row.getAttribute('data-track-key');
+      const postId = row.getAttribute('data-post-id');
+      if (!trackKey || !postId) return;
+      const sig = postId + '|' + trackKey;
+      if (seen.has(sig)) return;
+      seen.add(sig);
+      if (row.querySelector('.mbd-ss-dl')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mbd-ss-dl';
+      btn.title = 'دانلود این قطعه (MediaCatch)';
+      btn.setAttribute('aria-label', 'دانلود');
+      btn.textContent = '⬇';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const it = items.get(songsaraItemKey(postId, trackKey));
+        if (it) songsaraDownload(it, btn);
+        else toast('قطعه هنوز بارگذاری نشده — چند ثانیه صبر کنید', true);
+      });
+      row.appendChild(btn);
+    });
+  }
+
+  async function songsaraDownload(item, btn) {
+    markBtn(btn, 'busy');
+    try {
+      let pickUrl = item.resolvedUrl;
+      let pickLabel = '';
+      if (!pickUrl) {
+        const data = await songsaraResolveDownloads(item);
+        const pick = songsaraPickDownload(data.items);
+        if (!pick) {
+          toast('لینک دانلود برای این قطعه در دسترس نیست (ممکن است نیاز به ورود/VIP باشد)', true);
+          markBtn(btn, 'err');
+          return false;
+        }
+        pickUrl = pick.url;
+        pickLabel = pick.label;
+        item.resolvedUrl = pickUrl;
+        const ext = /\.flac/i.test(pickUrl) || /flac/i.test(pick.label) ? '.flac' : '.mp3';
+        if (data.title) item.name = songsaraSafeFileName('', data.title, ext);
+        else if (pickLabel) item.name = songsaraSafeFileName('', item.name.replace(/\.[a-z0-9]+$/i, ''), ext);
+      }
+      if (!item.sizeBytes) {
+        item.sizeBytes = await probeRemoteSize(pickUrl);
+        if (panelOpen) renderPanel();
+      }
+      item.url = pickUrl;
+      const res = await requestMessage('mbd:download', { url: pickUrl, filename: item.name, source: location.href });
+      if (res && res.ok) {
+        toast('⬇ دانلود شروع شد: ' + item.name + (res.via === 'fetch' ? ' (روش جایگزین)' : ''));
+        markBtn(btn, 'done');
+        return true;
+      }
+      return inPageDownload(pickUrl, item.name, btn);
+    } catch (e) {
+      toast('سانگ‌سرا: ' + ((e && e.message) || String(e)), true);
+      markBtn(btn, 'err');
+      return false;
+    }
   }
 
   // اسکن عمیق: بررسی computed-style همه المان‌ها برای تصویر پس‌زمینه
@@ -285,6 +594,7 @@
     scanTimer = setTimeout(() => {
       scanTimer = null;
       collect(opts || {});
+      if (isSongsaraSite()) songsaraInjectRowButtons();
       updateFabCount();
       if (panelOpen) renderPanel();
     }, 700);
@@ -324,6 +634,10 @@
     if (item.special === 'youtube') {
       f.querySelector('.mbd-float-icon').textContent = '📺';
       f.querySelector('.mbd-float-text').textContent = 'یوتیوب · دانلود 720p';
+    } else if (item.special === 'songsara') {
+      f.querySelector('.mbd-float-icon').textContent = '🎵';
+      f.querySelector('.mbd-float-text').textContent =
+        item.name.replace(/\.[a-z0-9]+$/i, '') + (item.durationSec ? ' · ' + fmtDuration(item.durationSec) : '') + ' · دانلود';
     } else {
       f.querySelector('.mbd-float-icon').textContent = TYPE_ICON[item.type] || '⬇';
       f.querySelector('.mbd-float-text').textContent =
@@ -663,13 +977,11 @@
       meta.className = 'mbd-row-meta';
       const name = document.createElement('div');
       name.className = 'mbd-row-name';
-      name.textContent = isYt ? 'ویدیوی یوتیوب' : it.name;
+      name.textContent = isYt ? 'ویدیوی یوتیوب' : it.special === 'songsara' ? it.name.replace(/\.[a-z0-9]+$/i, '') : it.name;
       name.title = it.url;
       const sub = document.createElement('div');
       sub.className = 'mbd-row-sub';
-      sub.textContent = isYt
-        ? 'ID: ' + it.videoId
-        : (TYPE_LABEL[it.type] || it.type) + (it.w && it.h ? ' · ' + it.w + '×' + it.h : '');
+      sub.textContent = isYt ? 'ID: ' + it.videoId : itemSubline(it);
       meta.append(name, sub);
       const btn = document.createElement('button');
       btn.className = 'mbd-dl';
@@ -688,6 +1000,12 @@
           youtubeDownload(it, btn, sel.value);
         });
         row.append(ic, meta, sel, btn);
+      } else if (it.special === 'songsara') {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          songsaraDownload(it, btn);
+        });
+        row.append(ic, meta, btn);
       } else {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -817,6 +1135,7 @@
   async function download(item, btn) {
     if (!item) return false;
     if (item.special === 'youtube') return youtubeDownload(item, btn);
+    if (item.special === 'songsara') return songsaraDownload(item, btn);
     if (isDataOrBlob(item.url)) return inPageDownload(item.url, item.name, btn);
 
     markBtn(btn, 'busy');
@@ -963,6 +1282,8 @@
             h: it.h,
             special: it.special || null,
             videoId: it.videoId || null,
+            durationSec: it.durationSec || 0,
+            sizeBytes: it.sizeBytes || 0,
           })),
         });
       } else if (msg.type === 'mbd:rescan') {
