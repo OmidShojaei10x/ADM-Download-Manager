@@ -111,10 +111,15 @@
     try {
       const r = await fetch(url, { method: 'HEAD', credentials: 'include', redirect: 'follow' });
       const cl = r.headers.get('content-length');
-      return cl ? parseInt(cl, 10) || 0 : 0;
-    } catch (e) {
-      return 0;
+      const n = cl ? parseInt(cl, 10) || 0 : 0;
+      if (n) return n;
+    } catch (e) {}
+    if (isSongsaraSite() || /songsara\.net/i.test(url)) {
+      try {
+        return await callSongsaraPageBridge('probeSize', { url }, 15000);
+      } catch (e) {}
     }
+    return 0;
   }
 
   function makeName(url, type) {
@@ -321,79 +326,142 @@
     return list.slice().sort((a, b) => score(b) - score(a))[0];
   }
 
-  function songsaraResolveViaJquery(trackIndex) {
-    return new Promise((resolve, reject) => {
-      const $ = window.jQuery;
-      const rt = window.ssPlayerRuntime || window.ssPlayerRuntimeInternal;
-      if (!$ || !rt || typeof rt.resolveTrackActionDownloads !== 'function') {
-        reject(new Error('runtime-missing'));
-        return;
-      }
-      const $player = $('#aramplayer');
-      if (!$player.length) {
-        reject(new Error('player-missing'));
-        return;
-      }
-      const idx = parseInt(trackIndex, 10);
-      if (isNaN(idx) || idx < 0) {
-        reject(new Error('bad-index'));
-        return;
-      }
-      const d = rt.resolveTrackActionDownloads($player, idx);
-      if (!d || typeof d.done !== 'function') {
-        reject(new Error('deferred-missing'));
-        return;
-      }
-      d.done((data) => resolve(data)).fail((err) => reject(err || new Error('resolve-failed')));
-    });
-  }
-
-  async function songsaraResolveViaFetch(postId, trackKey) {
-    const cfg = window.AramPlayer;
-    if (!cfg || !cfg.ajaxurl) throw new Error('تنظیمات پلیر پیدا نشد');
-    const body = new URLSearchParams({
-      action: 'aram_player_resolve_track_action_downloads',
-      ss_nonce: cfg.nonce || '',
-      'track[post_id]': String(postId),
-      'track[track_key]': String(trackKey),
-    });
-    const r = await fetch(cfg.ajaxurl, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body,
-    });
-    const text = await r.text();
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
-      throw new Error('پاسخ سرور نامعتبر است');
-    }
-    if (!json || !json.success) {
-      const code = json && json.data && json.data.error ? String(json.data.error) : 'resolve-failed';
-      throw new Error(code);
-    }
-    const raw = (json.data && json.data.items) || [];
-    const items = raw
-      .map((it) => ({
+  /* AramPlayer / jQuery فقط در context صفحه هستند — content script جداست */
+  function ensureSongsaraPageBridge() {
+    if (document.documentElement.getAttribute('data-mbd-ss-bridge')) return;
+    document.documentElement.setAttribute('data-mbd-ss-bridge', '1');
+    const script = document.createElement('script');
+    script.textContent = `(function(){
+  if (window.__mbdSsBridge) return;
+  window.__mbdSsBridge = true;
+  function normItems(raw, title) {
+    return (raw || []).map(function(it) {
+      return {
         quality: it.quality || '',
         label: String(it.label || '').trim(),
-        url: String(it.url || '').trim(),
-      }))
-      .filter((it) => it.url && it.label);
-    return { title: json.data && json.data.title, items };
+        url: String(it.url || '').trim()
+      };
+    }).filter(function(it) { return it.url && it.label; });
+  }
+  function respond(id, result, error) {
+    document.dispatchEvent(new CustomEvent('mbd-page-response', {
+      detail: { id: id, result: result, error: error || null }
+    }));
+  }
+  document.addEventListener('mbd-page-request', function(ev) {
+    var d = ev.detail;
+    if (!d || !d.id) return;
+    (function run() {
+      if (d.job === 'songsaraResolve') {
+        var postId = d.payload && d.payload.postId;
+        var trackKey = d.payload && d.payload.trackKey;
+        var trackIndex = d.payload && d.payload.trackIndex;
+        var $ = window.jQuery;
+        var rt = window.ssPlayerRuntimeInternal || window.ssPlayerRuntime;
+        if ($ && rt && typeof rt.resolveTrackActionDownloads === 'function') {
+          var $player = $('#aramplayer');
+          var idx = parseInt(trackIndex, 10);
+          if ($player.length && !isNaN(idx) && idx >= 0) {
+            var def = rt.resolveTrackActionDownloads($player, idx);
+            if (def && typeof def.done === 'function') {
+              def.done(function(data) {
+                var items = (data && data.items) || [];
+                respond(d.id, { title: data && data.title, items: items }, null);
+              }).fail(function(err) {
+                var msg = (err && err.code) || (err && err.message) || 'resolve-failed';
+                respond(d.id, null, String(msg));
+              });
+              return;
+            }
+          }
+        }
+        var cfg = window.AramPlayer;
+        if (!cfg || !cfg.ajaxurl) {
+          respond(d.id, null, 'تنظیمات پلیر پیدا نشد');
+          return;
+        }
+        var body = new URLSearchParams({
+          action: 'aram_player_resolve_track_action_downloads',
+          ss_nonce: cfg.nonce || '',
+          'track[post_id]': String(postId),
+          'track[track_key]': String(trackKey)
+        });
+        fetch(cfg.ajaxurl, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: body
+        }).then(function(r) { return r.text(); }).then(function(text) {
+          var json;
+          try { json = JSON.parse(text); } catch (e) { throw new Error('پاسخ سرور نامعتبر است'); }
+          if (!json || !json.success) {
+            var code = (json && json.data && json.data.error) || 'resolve-failed';
+            throw new Error(String(code));
+          }
+          respond(d.id, {
+            title: json.data && json.data.title,
+            items: normItems(json.data && json.data.items, json.data && json.data.title)
+          }, null);
+        }).catch(function(e) {
+          respond(d.id, null, (e && e.message) || String(e));
+        });
+        return;
+      }
+      if (d.job === 'probeSize') {
+        var url = d.payload && d.payload.url;
+        if (!url) { respond(d.id, 0, null); return; }
+        fetch(url, { method: 'HEAD', credentials: 'include', redirect: 'follow' })
+          .then(function(r) {
+            var cl = r.headers.get('content-length');
+            respond(d.id, cl ? (parseInt(cl, 10) || 0) : 0, null);
+          })
+          .catch(function() { respond(d.id, 0, null); });
+        return;
+      }
+      respond(d.id, null, 'unknown-job');
+    })();
+  });
+})();`;
+    (document.documentElement || document.head).appendChild(script);
+    script.remove();
+  }
+
+  function callSongsaraPageBridge(job, payload, timeoutMs) {
+    ensureSongsaraPageBridge();
+    return new Promise((resolve, reject) => {
+      const id = 'ss' + Date.now() + Math.floor(Math.random() * 1e6);
+      const timer = setTimeout(() => {
+        document.removeEventListener('mbd-page-response', onResp);
+        reject(new Error('page-bridge-timeout'));
+      }, timeoutMs || 35000);
+      function onResp(ev) {
+        const det = ev.detail;
+        if (!det || det.id !== id) return;
+        clearTimeout(timer);
+        document.removeEventListener('mbd-page-response', onResp);
+        if (det.error) reject(new Error(det.error));
+        else resolve(det.result);
+      }
+      document.addEventListener('mbd-page-response', onResp);
+      document.dispatchEvent(
+        new CustomEvent('mbd-page-request', { detail: { id, job, payload: payload || {} } })
+      );
+    });
   }
 
   async function songsaraResolveDownloads(item) {
-    try {
-      const viaSite = await songsaraResolveViaJquery(item.trackIndex);
-      if (viaSite && viaSite.items && viaSite.items.length) return viaSite;
-    } catch (e) {}
-    return songsaraResolveViaFetch(item.postId, item.trackKey);
+    const data = await callSongsaraPageBridge('songsaraResolve', {
+      postId: item.postId,
+      trackKey: item.trackKey,
+      trackIndex: item.trackIndex,
+    });
+    if (!data || !data.items || !data.items.length) {
+      throw new Error('لینک دانلود در دسترس نیست');
+    }
+    return data;
   }
 
   function songsaraRegisterTrack(meta, el) {
@@ -517,6 +585,23 @@
     });
   }
 
+  function songsaraFriendlyError(msg) {
+    const m = String(msg || '').toLowerCase();
+    if (m.includes('login') || m.includes('auth') || m.includes('وارد')) {
+      return 'برای دانلود باید در سانگ‌سرا وارد حساب شوید';
+    }
+    if (m.includes('vip') || m.includes('premium')) {
+      return 'این کیفیت فقط برای حساب VIP است';
+    }
+    if (m.includes('network') || m.includes('timeout')) {
+      return 'خطای شبکه — اتصال را چک کنید یا یک‌بار صفحه را رفرش کنید';
+    }
+    if (m.includes('تنظیمات پلیر')) {
+      return 'پلیر هنوز آماده نیست — چند ثانیه صبر کنید و دوباره امتحان کنید';
+    }
+    return msg || 'دانلود ناموفق بود';
+  }
+
   async function songsaraDownload(item, btn) {
     markBtn(btn, 'busy');
     try {
@@ -550,7 +635,7 @@
       }
       return inPageDownload(pickUrl, item.name, btn);
     } catch (e) {
-      toast('سانگ‌سرا: ' + ((e && e.message) || String(e)), true);
+      toast('سانگ‌سرا: ' + songsaraFriendlyError(e && e.message), true);
       markBtn(btn, 'err');
       return false;
     }

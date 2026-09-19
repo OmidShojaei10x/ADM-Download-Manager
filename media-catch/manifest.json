@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MediaCatch — دانلودر رسانه",
   "short_name": "MediaCatch",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "تشخیص خودکار تصاویر، ویدیوها و فایل‌های صوتی در صفحه و دانلود یک‌کلیکی — در سبک ADM Download Manager",
   "permissions": ["downloads", "storage", "contextMenus", "tabs"],
   "host_permissions": ["<all_urls>"],
