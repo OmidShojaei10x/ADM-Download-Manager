@@ -3,7 +3,15 @@
 
 const TYPE_ICON = { image: '🖼️', audio: '🎵', video: '🎬', stream: '📡' };
 const TYPE_LABEL = { image: 'تصویر', audio: 'صوت', video: 'ویدیو', stream: 'استریم' };
-const DEFAULTS = { enabled: true, hoverButton: true, minImageSize: 64, saveAs: false, blocked: [] };
+const DEFAULTS = {
+  enabled: true,
+  hoverButton: true,
+  minImageSize: 64,
+  saveAs: false,
+  siteMode: 'all',
+  allowed: [],
+  blocked: [],
+};
 
 let tab = null;
 
@@ -45,6 +53,14 @@ async function refreshPage() {
 
   if (!data || !data.ok) {
     empty.textContent = 'در این صفحه اسکریپت افزونه اجرا نمی‌شود (مثلاً صفحات داخلی کروم).';
+    empty.classList.remove('hidden');
+    pill.textContent = '—';
+    return;
+  }
+
+  if (data.siteActive === false) {
+    empty.textContent =
+      'افزونه برای این سایت فعال نیست. از تنظیمات → «فقط سایت‌های مشخص» دامنه را اضافه کنید.';
     empty.classList.remove('hidden');
     pill.textContent = '—';
     return;

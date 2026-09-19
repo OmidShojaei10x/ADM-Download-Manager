@@ -28,6 +28,8 @@
     hoverButton: true,
     minImageSize: 64,
     saveAs: false,
+    siteMode: 'all',
+    allowed: [],
     blocked: [],
   };
 
@@ -62,18 +64,16 @@
   };
   const isDataOrBlob = (u) => u.startsWith('data:') || u.startsWith('blob:');
 
-  function isBlocked(u) {
-    let host = '';
+  function isPageActive() {
     try {
-      host = new URL(u).hostname.toLowerCase();
+      return mbdSiteScope.mbdIsSiteScopeActive(settings, location.href);
     } catch (e) {
-      return false;
+      return true;
     }
-    return (settings.blocked || []).some((d) => {
-      d = String(d).trim().toLowerCase().replace(/^\.+/, '');
-      if (!d) return false;
-      return host === d || host.endsWith('.' + d);
-    });
+  }
+
+  function isExtensionActive() {
+    return settings.enabled && isPageActive();
   }
 
   function makeName(url, type) {
@@ -107,7 +107,7 @@
     if (url.startsWith('about:') || url.startsWith('chrome-extension:')) return;
     // blob فقط برای ویدیو/صدا (پلی‌رهای MSE) معنا داره
     if (isDataOrBlob(url) && !(el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO'))) return;
-    if (isBlocked(url)) return;
+    if (!isPageActive()) return;
 
     const t =
       type ||
@@ -171,7 +171,7 @@
   }
 
   function collect(opts) {
-    if (!settings.enabled) return;
+    if (!settings.enabled || !isPageActive()) return;
     const links = opts ? opts.links !== false : true;
     const deep = opts ? !!opts.deep : false;
 
@@ -280,7 +280,7 @@
   }
 
   function scheduleScan(opts) {
-    if (!settings.enabled) return;
+    if (!isExtensionActive()) return;
     if (scanTimer) return;
     scanTimer = setTimeout(() => {
       scanTimer = null;
@@ -355,7 +355,7 @@
   document.addEventListener(
     'mouseover',
     (e) => {
-      if (!settings.enabled) return;
+      if (!isExtensionActive()) return;
       const t = e.target;
       const el = t && typeof t.closest === 'function' ? t.closest('[data-mbd]') : null;
       if (!el) return;
@@ -543,7 +543,7 @@
     const c = fabEl.querySelector('.mbd-fab-count');
     c.textContent = String(items.size);
     c.style.display = items.size ? 'flex' : 'none';
-    fabEl.style.display = settings.enabled ? 'flex' : 'none';
+    fabEl.style.display = isExtensionActive() ? 'flex' : 'none';
   }
 
   /* ---------------- پنل رسانه‌ها ---------------- */
@@ -628,7 +628,7 @@
   }
 
   function togglePanel(force) {
-    if (!settings.enabled) return;
+    if (!isExtensionActive()) return;
     ensurePanel();
     panelOpen = typeof force === 'boolean' ? force : !panelOpen;
     panelEl.hidden = !panelOpen;
@@ -861,13 +861,18 @@
   /* ---------------- تنظیمات ---------------- */
 
   function applySettings() {
-    if (!settings.enabled) {
+    const active = isExtensionActive();
+    if (!active) {
       hideFloat();
       if (fabEl) fabEl.style.display = 'none';
       if (panelEl) panelEl.hidden = true;
+      panelOpen = false;
+      items.clear();
+      elBest.clear();
     } else {
       ensureFab();
       updateFabCount();
+      collect({});
     }
     scheduleStats();
   }
@@ -896,7 +901,7 @@
   // اسکن دوره‌ای سبک برای ویدیو/صواری که بعداً بارگذاری می‌شوند (blob و lazy)
   setInterval(
     () => {
-      if (!settings.enabled) return;
+      if (!settings.enabled || !isPageActive()) return;
       collect({ links: false });
       updateFabCount();
     },
@@ -921,6 +926,7 @@
   // میانبرهای کلیدهای میانبر
   try {
     chrome.commands.onCommand.addListener((cmd) => {
+      if (!isExtensionActive()) return;
       if (cmd === 'mbd-download-current') {
         if (hoveredEl) {
           const it = items.get(bestUrlFor(hoveredEl));
@@ -943,10 +949,13 @@
         return false;
       }
       if (msg.type === 'mbd:ping') {
+        const siteActive = isExtensionActive();
+        const list = siteActive ? [...items.values()].slice(0, 40) : [];
         sendResponse({
           ok: true,
-          count: items.size,
-          items: [...items.values()].slice(0, 40).map((it) => ({
+          siteActive,
+          count: siteActive ? items.size : 0,
+          items: list.map((it) => ({
             url: it.url,
             type: it.type,
             name: it.name,

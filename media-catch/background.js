@@ -8,13 +8,30 @@
    ========================================================= */
 'use strict';
 
+importScripts('site_scope.js');
+
 const DEFAULTS = {
   enabled: true,
   hoverButton: true,
   minImageSize: 64,
   saveAs: false,
+  siteMode: 'all',
+  allowed: [],
   blocked: [],
 };
+
+async function isTabScopeActive(tabId, fallbackUrl) {
+  const s = await chrome.storage.local.get('mbdSettings');
+  const cfg = { ...DEFAULTS, ...(s.mbdSettings || {}) };
+  let url = fallbackUrl || '';
+  if (tabId != null) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.url) url = tab.url;
+    } catch (e) {}
+  }
+  return mbdSiteScope.mbdIsSiteScopeActive(cfg, url);
+}
 
 const MEDIA_EXT =
   /\.(png|jpe?g|gif|webp|avif|bmp|svg|ico|heic|heif|tiff?|mp3|wav|ogg|oga|opus|flac|m4a|aac|wma|mp4|m4v|webm|mov|mkv|avi|3gp|ogv|m3u8|mpd|ts)(\?.*)?$/i;
@@ -58,12 +75,15 @@ chrome.contextMenus.onBeforeUpdate.addListener((info) => {
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
-  let url = null;
-  if (info.menuItemId === 'mbd-link') url = info.linkUrl;
-  else url = info.srcUrl;
-  if (!url) return;
-  const type = { 'mbd-image': 'image', 'mbd-audio': 'audio', 'mbd-video': 'video' }[info.menuItemId] || null;
-  startDownload(url, null, type, null, info.tabId != null ? info.tabId : null, info.frameId || 0);
+  (async () => {
+    if (!(await isTabScopeActive(info.tabId, info.pageUrl))) return;
+    let url = null;
+    if (info.menuItemId === 'mbd-link') url = info.linkUrl;
+    else url = info.srcUrl;
+    if (!url) return;
+    const type = { 'mbd-image': 'image', 'mbd-audio': 'audio', 'mbd-video': 'video' }[info.menuItemId] || null;
+    startDownload(url, null, type, null, info.tabId != null ? info.tabId : null, info.frameId || 0);
+  })();
 });
 
 /* ---------------- دانلود ---------------- */
@@ -338,6 +358,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const source = (sender.tab && sender.tab.url) || msg.source || null;
         const token = msg.token || 't' + ++tokenSeq;
         sendResponse({ ack: true, token });
+        if (!(await isTabScopeActive(tabId, source))) {
+          dispatchResult(
+            { type: 'mbd:download-result', token, ok: false, error: 'افزونه برای این سایت فعال نیست' },
+            tabId,
+            frameId
+          );
+          return;
+        }
         let res;
         try {
           res = await startDownload(msg.url, msg.filename, null, source, tabId, frameId);
@@ -351,6 +379,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const source = (sender.tab && sender.tab.url) || msg.source || null;
         const token = msg.token || 't' + ++tokenSeq;
         sendResponse({ ack: true, token });
+        if (!(await isTabScopeActive(tabId, source))) {
+          dispatchResult(
+            { type: 'mbd:download-result', token, ok: false, error: 'افزونه برای این سایت فعال نیست' },
+            tabId,
+            frameId
+          );
+          return;
+        }
         let res;
         try {
           res = await startYouTubeDownload(msg.videoId, msg.quality || 'v720', source, tabId, frameId);
